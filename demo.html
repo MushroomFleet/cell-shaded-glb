@@ -393,7 +393,9 @@
   }
 
   /* ── Shader Mode Buttons ─────────────────────────────── */
-  .mode-group { display: flex; gap: 4px; }
+  .mode-group { display: flex; gap: 4px; flex-wrap: wrap; }
+  .mode-sliders { display: none; gap: 20px; align-items: flex-start; }
+  .mode-sliders.visible { display: flex; }
   .mode-btn {
     padding: 5px 14px;
     background: var(--bg-input);
@@ -563,6 +565,14 @@
 
   <div class="divider"></div>
 
+  <!-- Light Temperature -->
+  <div class="ctrl-group">
+    <div class="ctrl-label">Light Temp <span class="ctrl-value" id="temp-val">6500K</span></div>
+    <input type="range" id="slider-temp" min="2000" max="10000" step="100" value="6500">
+  </div>
+
+  <div class="divider"></div>
+
   <!-- Shader Mode -->
   <div class="ctrl-group">
     <div class="ctrl-label">Shader Mode</div>
@@ -570,6 +580,70 @@
       <button class="mode-btn" data-mode="flat">Flat</button>
       <button class="mode-btn active" data-mode="toon">Toon</button>
       <button class="mode-btn" data-mode="anime">Anime</button>
+      <button class="mode-btn" data-mode="cartoon">Cartoon</button>
+      <button class="mode-btn" data-mode="comic">Comic</button>
+      <button class="mode-btn" data-mode="cell">Cell</button>
+      <button class="mode-btn" data-mode="sketch">Sketch</button>
+    </div>
+  </div>
+
+  <!-- Mode-Specific Sliders -->
+  <div class="mode-sliders" id="anime-sliders">
+    <div class="ctrl-group">
+      <div class="ctrl-label">Outline <span class="ctrl-value" id="outline-val">0.020</span></div>
+      <input type="range" id="slider-outline" min="0" max="0.1" step="0.001" value="0.02">
+    </div>
+  </div>
+
+  <div class="mode-sliders" id="cartoon-sliders">
+    <div class="ctrl-group">
+      <div class="ctrl-label">Shadow Tint <span class="ctrl-value" id="cartoon-tint-val">0.50</span></div>
+      <input type="range" id="slider-cartoon-tint" min="0" max="1" step="0.01" value="0.5">
+    </div>
+    <div class="ctrl-group">
+      <div class="ctrl-label">Saturation <span class="ctrl-value" id="cartoon-sat-val">1.30</span></div>
+      <input type="range" id="slider-cartoon-sat" min="0.5" max="2" step="0.01" value="1.3">
+    </div>
+  </div>
+
+  <div class="mode-sliders" id="comic-sliders">
+    <div class="ctrl-group">
+      <div class="ctrl-label">Dot Scale <span class="ctrl-value" id="comic-dot-val">8.0</span></div>
+      <input type="range" id="slider-comic-dot" min="3" max="30" step="0.5" value="8">
+    </div>
+    <div class="ctrl-group">
+      <div class="ctrl-label">Ink Width <span class="ctrl-value" id="comic-ink-val">0.020</span></div>
+      <input type="range" id="slider-comic-ink" min="0" max="0.1" step="0.001" value="0.02">
+    </div>
+  </div>
+
+  <div class="mode-sliders" id="cell-sliders">
+    <div class="ctrl-group">
+      <div class="ctrl-label">Shadow Cut <span class="ctrl-value" id="cell-cut-val">0.20</span></div>
+      <input type="range" id="slider-cell-cut" min="-0.5" max="1" step="0.01" value="0.2">
+    </div>
+    <div class="ctrl-group">
+      <div class="ctrl-label">Shadow Tone <span class="ctrl-value" id="cell-tone-val">0.35</span></div>
+      <input type="range" id="slider-cell-tone" min="0" max="0.8" step="0.01" value="0.35">
+    </div>
+  </div>
+
+  <div class="mode-sliders" id="sketch-sliders">
+    <div class="ctrl-group">
+      <div class="ctrl-label">Hatch Scale <span class="ctrl-value" id="sketch-hatch-val">0.40</span></div>
+      <input type="range" id="slider-sketch-hatch" min="0.1" max="1.5" step="0.01" value="0.4">
+    </div>
+    <div class="ctrl-group">
+      <div class="ctrl-label">Paper Tone <span class="ctrl-value" id="sketch-paper-val">0.60</span></div>
+      <input type="range" id="slider-sketch-paper" min="0" max="1" step="0.01" value="0.6">
+    </div>
+    <div class="ctrl-group">
+      <div class="ctrl-label">Hatch Opacity <span class="ctrl-value" id="sketch-thresh-val">0.80</span></div>
+      <input type="range" id="slider-sketch-thresh" min="0" max="1" step="0.01" value="0.8">
+    </div>
+    <div class="ctrl-group">
+      <div class="ctrl-label">Hatch Target</div>
+      <button class="mode-btn" id="btn-sketch-invert" style="font-size:10px;padding:4px 10px;">Shadow</button>
     </div>
   </div>
 
@@ -759,6 +833,166 @@ const ANIME_FRAG = `
   }
 `;
 
+// ── CARTOON — warm/cool shadow split, saturation boost, no outlines ──────────
+
+const CARTOON_FRAG = `
+  uniform sampler2D uMap;
+  uniform vec3 uBaseColor;
+  uniform bool uHasMap;
+  uniform vec3 uLightDir;
+  uniform vec3 uLightColor;
+  uniform float uLightIntensity;
+  uniform float uAmbient;
+  uniform float uShadowTint;
+  uniform float uSaturation;
+  varying vec3 vNormal;
+  varying vec2 vUv;
+
+  vec3 adjustSaturation(vec3 col, float sat) {
+    float grey = dot(col, vec3(0.299, 0.587, 0.114));
+    return mix(vec3(grey), col, sat);
+  }
+
+  void main() {
+    vec3 N = normalize(vNormal);
+    vec3 L = normalize(uLightDir);
+    float NdL = dot(N, L);
+    float shade = smoothstep(-0.1, 0.3, NdL);
+    vec3 albedo = uHasMap ? texture2D(uMap, vUv).rgb : uBaseColor;
+    vec3 shadowColor = mix(albedo * 0.4, albedo * 0.4 * vec3(0.7, 0.6, 1.0), uShadowTint);
+    vec3 litColor = albedo * uLightColor * uLightIntensity;
+    vec3 diffuse = mix(shadowColor, litColor, shade);
+    vec3 ambient = albedo * uAmbient;
+    vec3 result = adjustSaturation(diffuse + ambient, uSaturation);
+    gl_FragColor = vec4(result, 1.0);
+  }
+`;
+
+// ── COMIC — halftone dot shading + bold ink outlines ─────────────────────────
+
+const COMIC_FRAG = `
+  uniform sampler2D uMap;
+  uniform vec3 uBaseColor;
+  uniform bool uHasMap;
+  uniform vec3 uLightDir;
+  uniform vec3 uLightColor;
+  uniform float uLightIntensity;
+  uniform float uAmbient;
+  uniform float uDotScale;
+  uniform bool uIsOutlinePass;
+  uniform vec3 uOutlineColor;
+  varying vec3 vNormal;
+  varying vec2 vUv;
+  varying vec3 vViewDir;
+
+  void main() {
+    if (uIsOutlinePass) { gl_FragColor = vec4(uOutlineColor, 1.0); return; }
+    vec3 N = normalize(vNormal);
+    vec3 L = normalize(uLightDir);
+    float NdL = dot(N, L) * 0.5 + 0.5;
+    vec3 albedo = uHasMap ? texture2D(uMap, vUv).rgb : uBaseColor;
+    vec2 coord = gl_FragCoord.xy / uDotScale;
+    float dist = length(fract(coord) - 0.5) * 2.0;
+    float dotRadius = 1.0 - NdL;
+    float halftone = step(dotRadius, dist);
+    vec3 litColor = albedo * uLightColor * uLightIntensity;
+    vec3 shadowColor = albedo * 0.1;
+    vec3 diffuse = mix(shadowColor, litColor, halftone);
+    vec3 ambient = albedo * uAmbient * 0.3;
+    gl_FragColor = vec4(diffuse + ambient, 1.0);
+  }
+`;
+
+// ── CELL — classic hard 2-tone cel shading ───────────────────────────────────
+
+const CELL_FRAG = `
+  uniform sampler2D uMap;
+  uniform vec3 uBaseColor;
+  uniform bool uHasMap;
+  uniform vec3 uLightDir;
+  uniform vec3 uLightColor;
+  uniform float uLightIntensity;
+  uniform float uAmbient;
+  uniform float uShadowCut;
+  uniform float uShadowTone;
+  varying vec3 vNormal;
+  varying vec2 vUv;
+
+  void main() {
+    vec3 N = normalize(vNormal);
+    vec3 L = normalize(uLightDir);
+    float NdL = dot(N, L);
+    float shade = step(uShadowCut, NdL);
+    vec3 albedo = uHasMap ? texture2D(uMap, vUv).rgb : uBaseColor;
+    float brightness = mix(uShadowTone, 1.0, shade);
+    vec3 diffuse = albedo * uLightColor * uLightIntensity * brightness;
+    vec3 ambient = albedo * uAmbient;
+    gl_FragColor = vec4(diffuse + ambient, 1.0);
+  }
+`;
+
+// ── SKETCH — cross-hatch pencil lines with paper tone ────────────────────────
+
+const SKETCH_FRAG = `
+  uniform sampler2D uMap;
+  uniform vec3 uBaseColor;
+  uniform bool uHasMap;
+  uniform vec3 uLightDir;
+  uniform vec3 uLightColor;
+  uniform float uLightIntensity;
+  uniform float uAmbient;
+  uniform float uHatchScale;
+  uniform float uPaperTone;
+  uniform float uHatchThreshold;
+  uniform bool  uInvertHatch;
+  varying vec3 vNormal;
+  varying vec2 vUv;
+
+  void main() {
+    vec3 N = normalize(vNormal);
+    vec3 L = normalize(uLightDir);
+    float NdL = max(0.0, dot(N, L));
+    // Brightness accounts for light intensity and ambient fill
+    float brightness = clamp(NdL * uLightIntensity / 1.5 + uAmbient * 0.5, 0.0, 1.0);
+    vec3 albedo = uHasMap ? texture2D(uMap, vUv).rgb : uBaseColor;
+    // Paper tinted by light color temperature
+    vec3 basePaper = mix(vec3(1.0), vec3(0.95, 0.9, 0.82), uPaperTone);
+    vec3 paper = basePaper * mix(vec3(1.0), uLightColor, 0.25);
+
+    // Drive factor: 0 in bright areas, 1 in dark (or inverted)
+    float drive = uInvertHatch ? brightness : 1.0 - brightness;
+
+    // Three hatch line sets at different angles
+    float line1 = abs(sin((gl_FragCoord.x + gl_FragCoord.y) * uHatchScale));
+    float line2 = abs(sin((gl_FragCoord.x - gl_FragCoord.y) * uHatchScale));
+    float line3 = abs(sin(gl_FragCoord.x * uHatchScale * 1.4));
+
+    // Fixed smoothstep for line anti-aliasing
+    float h1 = smoothstep(0.15, 0.25, line1);
+    float h2 = smoothstep(0.15, 0.25, line2);
+    float h3 = smoothstep(0.15, 0.25, line3);
+
+    // Blend hatch layers based on drive intensity
+    float hatchMask = 1.0;
+    hatchMask = mix(hatchMask, min(hatchMask, h1), smoothstep(0.15, 0.35, drive));
+    hatchMask = mix(hatchMask, min(hatchMask, h2), smoothstep(0.35, 0.55, drive));
+    hatchMask = mix(hatchMask, min(hatchMask, h3), smoothstep(0.55, 0.75, drive));
+
+    // Deep shadow / extreme drive: darken overall
+    float deepDark = smoothstep(0.85, 0.95, drive);
+    hatchMask = mix(hatchMask, hatchMask * 0.3, deepDark);
+
+    // Intensity: 0 = pure paper (no hatching), 1 = full hatching
+    hatchMask = mix(1.0, hatchMask, uHatchThreshold);
+
+    // Compose: paper where no hatch, dark pencil strokes where hatch
+    float grey = dot(albedo, vec3(0.299, 0.587, 0.114));
+    vec3 pencilColor = mix(vec3(0.1), paper, hatchMask);
+    vec3 result = mix(pencilColor, pencilColor * (albedo / max(vec3(grey), vec3(0.01))), 0.3 * hatchMask);
+    gl_FragColor = vec4(result, 1.0);
+  }
+`;
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // MATERIAL FACTORIES — skinning: true on all for SkinnedMesh support
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -804,13 +1038,90 @@ function makeAnimeMaterial(src, isOutline) {
       uShininess:      { value: 64.0 },
       uRimColor:       { value: new THREE.Color(0.4, 0.6, 1.0) },
       uRimStrength:    { value: 0.6 },
-      uOutlineWidth:   { value: 0.02 },
+      uOutlineWidth:   { value: state.outlineWidth },
       uIsOutlinePass:  { value: isOutline },
       uOutlineColor:   { value: new THREE.Color(0, 0, 0) },
     },
     vertexShader: ANIME_VERT, fragmentShader: ANIME_FRAG,
     skinning: true,
     side: isOutline ? THREE.BackSide : THREE.FrontSide,
+  });
+}
+
+function makeCartoonMaterial(src) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uMap:            { value: src.map ?? null },
+      uBaseColor:      { value: src.color ? src.color.clone() : new THREE.Color(0.8, 0.8, 0.8) },
+      uHasMap:         { value: !!src.map },
+      uLightDir:       { value: new THREE.Vector3(1, 1, 1).normalize() },
+      uLightColor:     { value: new THREE.Color(1, 0.957, 0.878) },
+      uLightIntensity: { value: 1.5 },
+      uAmbient:        { value: 0.4 },
+      uShadowTint:     { value: state.cartoonTint },
+      uSaturation:     { value: state.cartoonSat },
+    },
+    vertexShader: TOON_VERT, fragmentShader: CARTOON_FRAG,
+    skinning: true,
+  });
+}
+
+function makeComicMaterial(src, isOutline) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uMap:            { value: src.map ?? null },
+      uBaseColor:      { value: src.color ? src.color.clone() : new THREE.Color(0.8, 0.8, 0.8) },
+      uHasMap:         { value: !!src.map },
+      uLightDir:       { value: new THREE.Vector3(1, 1, 1).normalize() },
+      uLightColor:     { value: new THREE.Color(1, 0.957, 0.878) },
+      uLightIntensity: { value: 1.5 },
+      uAmbient:        { value: 0.4 },
+      uDotScale:       { value: state.comicDotScale },
+      uOutlineWidth:   { value: state.comicInkWidth },
+      uIsOutlinePass:  { value: isOutline },
+      uOutlineColor:   { value: new THREE.Color(0, 0, 0) },
+    },
+    vertexShader: ANIME_VERT, fragmentShader: COMIC_FRAG,
+    skinning: true,
+    side: isOutline ? THREE.BackSide : THREE.FrontSide,
+  });
+}
+
+function makeCellMaterial(src) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uMap:            { value: src.map ?? null },
+      uBaseColor:      { value: src.color ? src.color.clone() : new THREE.Color(0.8, 0.8, 0.8) },
+      uHasMap:         { value: !!src.map },
+      uLightDir:       { value: new THREE.Vector3(1, 1, 1).normalize() },
+      uLightColor:     { value: new THREE.Color(1, 0.957, 0.878) },
+      uLightIntensity: { value: 1.5 },
+      uAmbient:        { value: 0.4 },
+      uShadowCut:      { value: state.cellShadowCut },
+      uShadowTone:     { value: state.cellShadowTone },
+    },
+    vertexShader: TOON_VERT, fragmentShader: CELL_FRAG,
+    skinning: true,
+  });
+}
+
+function makeSketchMaterial(src) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uMap:            { value: src.map ?? null },
+      uBaseColor:      { value: src.color ? src.color.clone() : new THREE.Color(0.8, 0.8, 0.8) },
+      uHasMap:         { value: !!src.map },
+      uLightDir:       { value: new THREE.Vector3(1, 1, 1).normalize() },
+      uLightColor:     { value: new THREE.Color(1, 0.957, 0.878) },
+      uLightIntensity: { value: 1.5 },
+      uAmbient:        { value: 0.4 },
+      uHatchScale:     { value: state.sketchHatchScale },
+      uPaperTone:      { value: state.sketchPaperTone },
+      uHatchThreshold: { value: state.sketchHatchThreshold },
+      uInvertHatch:    { value: state.sketchInvert },
+    },
+    vertexShader: TOON_VERT, fragmentShader: SKETCH_FRAG,
+    skinning: true,
   });
 }
 
@@ -822,9 +1133,21 @@ const state = {
   shaderMode: 'toon',
   timeOfDay: 12,
   giStrength: 0.4,
+  lightTemp: 6500,
   animSpeed: 1.0,
   playing: true,
   hasModel: false,
+  outlineWidth: 0.02,
+  cartoonTint: 0.5,
+  cartoonSat: 1.3,
+  comicDotScale: 8.0,
+  comicInkWidth: 0.02,
+  cellShadowCut: 0.2,
+  cellShadowTone: 0.35,
+  sketchHatchScale: 0.4,
+  sketchPaperTone: 0.6,
+  sketchHatchThreshold: 0.8,
+  sketchInvert: false,
 };
 
 let renderer, camera, scene, controls, composer;
@@ -855,7 +1178,40 @@ const animGroup  = document.getElementById('anim-group');
 const animNone   = document.getElementById('anim-none');
 const animSelect = document.getElementById('anim-select');
 const btnPlay    = document.getElementById('btn-playpause');
-const modeBtns   = document.querySelectorAll('.mode-btn');
+const modeBtns   = document.querySelectorAll('.mode-btn[data-mode]');
+const sliderTemp = document.getElementById('slider-temp');
+const tempVal    = document.getElementById('temp-val');
+
+// Mode-specific slider containers
+const modeSliderIds = ['anime-sliders','cartoon-sliders','comic-sliders','cell-sliders','sketch-sliders'];
+const modeSliderEls = Object.fromEntries(modeSliderIds.map(id => [id, document.getElementById(id)]));
+
+// Anime
+const sliderOutline = document.getElementById('slider-outline');
+const outlineVal    = document.getElementById('outline-val');
+// Cartoon
+const sliderCartoonTint = document.getElementById('slider-cartoon-tint');
+const cartoonTintVal    = document.getElementById('cartoon-tint-val');
+const sliderCartoonSat  = document.getElementById('slider-cartoon-sat');
+const cartoonSatVal     = document.getElementById('cartoon-sat-val');
+// Comic
+const sliderComicDot = document.getElementById('slider-comic-dot');
+const comicDotVal    = document.getElementById('comic-dot-val');
+const sliderComicInk = document.getElementById('slider-comic-ink');
+const comicInkVal    = document.getElementById('comic-ink-val');
+// Cell
+const sliderCellCut  = document.getElementById('slider-cell-cut');
+const cellCutVal     = document.getElementById('cell-cut-val');
+const sliderCellTone = document.getElementById('slider-cell-tone');
+const cellToneVal    = document.getElementById('cell-tone-val');
+// Sketch
+const sliderSketchHatch = document.getElementById('slider-sketch-hatch');
+const sketchHatchVal    = document.getElementById('sketch-hatch-val');
+const sliderSketchPaper  = document.getElementById('slider-sketch-paper');
+const sketchPaperVal     = document.getElementById('sketch-paper-val');
+const sliderSketchThresh = document.getElementById('slider-sketch-thresh');
+const sketchThreshVal    = document.getElementById('sketch-thresh-val');
+const btnSketchInvert    = document.getElementById('btn-sketch-invert');
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // THREE.JS SCENE SETUP
@@ -896,6 +1252,9 @@ function init() {
 
   ambLight = new THREE.AmbientLight(0x8888cc, 0.4);
   scene.add(ambLight);
+
+  // Apply initial light temperature from state
+  applyLightTemperature();
 
   // Shadow ground plane
   const groundGeo = new THREE.PlaneGeometry(20, 20);
@@ -988,11 +1347,36 @@ function updateLightFromTimeOfDay() {
   groundMat.opacity = 0.35 * fade;
 }
 
+function kelvinToColor(kelvin) {
+  const t = kelvin / 100;
+  let r, g, b;
+  if (t <= 66) {
+    r = 255;
+    g = 99.4708025861 * Math.log(t) - 161.1195681661;
+    b = t <= 19 ? 0 : 138.5177312231 * Math.log(t - 10) - 305.0447927307;
+  } else {
+    r = 329.698727446 * Math.pow(t - 60, -0.1332047592);
+    g = 288.1221695283 * Math.pow(t - 60, -0.0755148492);
+    b = 255;
+  }
+  return new THREE.Color(
+    Math.min(255, Math.max(0, r)) / 255,
+    Math.min(255, Math.max(0, g)) / 255,
+    Math.min(255, Math.max(0, b)) / 255
+  );
+}
+
+function applyLightTemperature() {
+  const col = kelvinToColor(state.lightTemp);
+  dirLight.color.copy(col);
+}
+
 function updateShaderUniforms() {
   if (!model) return;
   const L = dirLight.position.clone().normalize();
   const intensity = dirLight.intensity;
   const ambient = ambLight.intensity;
+  const lightCol = dirLight.color;
   model.traverse(child => {
     if (!child.isMesh) return;
     const mat = child.material;
@@ -1000,6 +1384,9 @@ function updateShaderUniforms() {
       mat.uniforms.uLightDir.value.copy(L);
       mat.uniforms.uLightIntensity.value = intensity;
       mat.uniforms.uAmbient.value = ambient;
+    }
+    if (mat?.uniforms?.uLightColor) {
+      mat.uniforms.uLightColor.value.copy(lightCol);
     }
   });
 }
@@ -1009,7 +1396,7 @@ function updateShaderUniforms() {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function updateGroundPlane(mode) {
-  const shouldShow = mode === 'toon' || mode === 'anime';
+  const shouldShow = mode !== 'flat' && mode !== 'sketch';
   const inScene = scene.getObjectByName('shadowGroundPlane') !== undefined;
   if (shouldShow && !inScene) scene.add(groundPlane);
   if (!shouldShow && inScene) scene.remove(groundPlane);
@@ -1038,19 +1425,31 @@ function applyShaderMode(mode) {
     }
   });
 
+  // Modes that use back-face outline twins
+  const outlineModes = ['anime', 'comic'];
+
   // Apply new materials
   meshes.forEach(child => {
     const src = child.userData.originalMaterial ?? child.material;
     child.userData.originalMaterial = src;
 
-    if (mode === 'flat') {
-      child.material = makeFlatMaterial(src);
-    } else if (mode === 'toon') {
-      child.material = makeToonMaterial(src);
-    } else if (mode === 'anime') {
-      child.material = makeAnimeMaterial(src, false);
-      const outlineMat = makeAnimeMaterial(src, true);
-      const outlineMesh = new THREE.Mesh(child.geometry, outlineMat);
+    const factories = {
+      flat:    () => makeFlatMaterial(src),
+      toon:    () => makeToonMaterial(src),
+      anime:   () => makeAnimeMaterial(src, false),
+      cartoon: () => makeCartoonMaterial(src),
+      comic:   () => makeComicMaterial(src, false),
+      cell:    () => makeCellMaterial(src),
+      sketch:  () => makeSketchMaterial(src),
+    };
+    child.material = (factories[mode] || factories.toon)();
+
+    // Add outline twin for modes that need it
+    if (outlineModes.includes(mode)) {
+      const outlineFactory = mode === 'anime'
+        ? makeAnimeMaterial(src, true)
+        : makeComicMaterial(src, true);
+      const outlineMesh = new THREE.Mesh(child.geometry, outlineFactory);
       outlineMesh.renderOrder = -1;
       outlineMesh.frustumCulled = false;
       outlineMesh.userData.isOutlineMesh = true;
@@ -1059,7 +1458,7 @@ function applyShaderMode(mode) {
     }
   });
 
-  // OutlinePass (Toon only — anime uses geometry-twin outlines)
+  // OutlinePass (Toon only — other modes use geometry-twin or no outlines)
   if (composer.passes.length > 1) composer.passes.splice(1, composer.passes.length - 1);
   if (mode === 'toon') {
     const op = new OutlinePass(
@@ -1077,6 +1476,21 @@ function applyShaderMode(mode) {
 
   updateGroundPlane(mode);
   state.shaderMode = mode;
+
+  // Show/hide mode-specific slider groups
+  const sliderMap = {
+    anime: 'anime-sliders',
+    cartoon: 'cartoon-sliders',
+    comic: 'comic-sliders',
+    cell: 'cell-sliders',
+    sketch: 'sketch-sliders',
+  };
+  for (const el of Object.values(modeSliderEls)) {
+    el.classList.remove('visible');
+  }
+  if (sliderMap[mode] && modeSliderEls[sliderMap[mode]]) {
+    modeSliderEls[sliderMap[mode]].classList.add('visible');
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1289,6 +1703,104 @@ sliderSpeed.addEventListener('input', e => {
   state.animSpeed = +e.target.value;
   speedVal.textContent = state.animSpeed.toFixed(2) + 'x';
   if (mixer) mixer.timeScale = state.animSpeed;
+});
+
+// Light Temperature
+sliderTemp.addEventListener('input', e => {
+  state.lightTemp = +e.target.value;
+  tempVal.textContent = state.lightTemp + 'K';
+  applyLightTemperature();
+});
+
+// Helper: update a uniform across all model meshes + outline twins
+function updateUniformLive(uniformName, value) {
+  if (!model) return;
+  model.traverse(child => {
+    if (!child.isMesh) return;
+    if (child.material?.uniforms?.[uniformName]) {
+      child.material.uniforms[uniformName].value = value;
+    }
+    if (child.userData.outlineMesh?.material?.uniforms?.[uniformName]) {
+      child.userData.outlineMesh.material.uniforms[uniformName].value = value;
+    }
+  });
+}
+
+// Anime: Outline width
+sliderOutline.addEventListener('input', e => {
+  state.outlineWidth = +e.target.value;
+  outlineVal.textContent = state.outlineWidth.toFixed(3);
+  if (state.shaderMode === 'anime') updateUniformLive('uOutlineWidth', state.outlineWidth);
+});
+
+// Cartoon: Shadow Tint
+sliderCartoonTint.addEventListener('input', e => {
+  state.cartoonTint = +e.target.value;
+  cartoonTintVal.textContent = state.cartoonTint.toFixed(2);
+  if (state.shaderMode === 'cartoon') updateUniformLive('uShadowTint', state.cartoonTint);
+});
+
+// Cartoon: Saturation
+sliderCartoonSat.addEventListener('input', e => {
+  state.cartoonSat = +e.target.value;
+  cartoonSatVal.textContent = state.cartoonSat.toFixed(2);
+  if (state.shaderMode === 'cartoon') updateUniformLive('uSaturation', state.cartoonSat);
+});
+
+// Comic: Dot Scale
+sliderComicDot.addEventListener('input', e => {
+  state.comicDotScale = +e.target.value;
+  comicDotVal.textContent = state.comicDotScale.toFixed(1);
+  if (state.shaderMode === 'comic') updateUniformLive('uDotScale', state.comicDotScale);
+});
+
+// Comic: Ink Width
+sliderComicInk.addEventListener('input', e => {
+  state.comicInkWidth = +e.target.value;
+  comicInkVal.textContent = state.comicInkWidth.toFixed(3);
+  if (state.shaderMode === 'comic') updateUniformLive('uOutlineWidth', state.comicInkWidth);
+});
+
+// Cell: Shadow Cut
+sliderCellCut.addEventListener('input', e => {
+  state.cellShadowCut = +e.target.value;
+  cellCutVal.textContent = state.cellShadowCut.toFixed(2);
+  if (state.shaderMode === 'cell') updateUniformLive('uShadowCut', state.cellShadowCut);
+});
+
+// Cell: Shadow Tone
+sliderCellTone.addEventListener('input', e => {
+  state.cellShadowTone = +e.target.value;
+  cellToneVal.textContent = state.cellShadowTone.toFixed(2);
+  if (state.shaderMode === 'cell') updateUniformLive('uShadowTone', state.cellShadowTone);
+});
+
+// Sketch: Hatch Scale
+sliderSketchHatch.addEventListener('input', e => {
+  state.sketchHatchScale = +e.target.value;
+  sketchHatchVal.textContent = state.sketchHatchScale.toFixed(2);
+  if (state.shaderMode === 'sketch') updateUniformLive('uHatchScale', state.sketchHatchScale);
+});
+
+// Sketch: Paper Tone
+sliderSketchPaper.addEventListener('input', e => {
+  state.sketchPaperTone = +e.target.value;
+  sketchPaperVal.textContent = state.sketchPaperTone.toFixed(2);
+  if (state.shaderMode === 'sketch') updateUniformLive('uPaperTone', state.sketchPaperTone);
+});
+
+// Sketch: Hatch Opacity Threshold
+sliderSketchThresh.addEventListener('input', e => {
+  state.sketchHatchThreshold = +e.target.value;
+  sketchThreshVal.textContent = state.sketchHatchThreshold.toFixed(2);
+  if (state.shaderMode === 'sketch') updateUniformLive('uHatchThreshold', state.sketchHatchThreshold);
+});
+
+// Sketch: Invert Hatch toggle (Shadow ↔ Light)
+btnSketchInvert.addEventListener('click', () => {
+  state.sketchInvert = !state.sketchInvert;
+  btnSketchInvert.textContent = state.sketchInvert ? 'Light' : 'Shadow';
+  if (state.shaderMode === 'sketch') updateUniformLive('uInvertHatch', state.sketchInvert);
 });
 
 // Shader mode buttons
