@@ -1,0 +1,1338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cell-Shaded GLB Viewer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg-deep: #06060f;
+    --bg-primary: #0d0d1a;
+    --bg-panel: #111122;
+    --bg-control: #1a1a33;
+    --bg-input: #222244;
+    --accent: #5566ff;
+    --accent-glow: #7788ff;
+    --accent-dim: #3344aa;
+    --text: #e0e0ee;
+    --text-dim: #8888aa;
+    --text-label: #aabbdd;
+    --border: #2a2a44;
+    --error: #ff4455;
+    --font-display: 'Outfit', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  html, body { width: 100%; height: 100%; overflow: hidden; background: var(--bg-deep); }
+
+  body {
+    font-family: var(--font-mono);
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── Top Bar ─────────────────────────────────────────── */
+  #topbar {
+    height: 48px;
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    background: var(--bg-panel);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    position: relative;
+    z-index: 20;
+  }
+
+  #topbar::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent-dim), transparent);
+  }
+
+  .logo {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: 0.08em;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .logo-icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    background: linear-gradient(135deg, var(--accent), #8866ff);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    box-shadow: 0 0 12px rgba(85, 102, 255, 0.3);
+  }
+
+  .logo span { color: var(--accent-glow); }
+
+  #btn-export {
+    margin-left: auto;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 6px 16px;
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    transition: all 0.2s;
+    letter-spacing: 0.03em;
+  }
+  #btn-export:hover { background: var(--accent-dim); border-color: var(--accent); }
+  #btn-export.flash { background: var(--accent); border-color: var(--accent-glow); }
+
+  /* ── Viewport ────────────────────────────────────────── */
+  #viewport {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    background: var(--bg-primary);
+  }
+
+  #viewport canvas { display: block; width: 100%; height: 100%; }
+
+  /* ── Drop Zone ───────────────────────────────────────── */
+  #dropzone {
+    position: absolute;
+    inset: 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    background: rgba(10, 10, 26, 0.92);
+    border: 2px dashed var(--border);
+    border-radius: 16px;
+    cursor: pointer;
+    transition: all 0.2s;
+    z-index: 10;
+    user-select: none;
+    backdrop-filter: blur(8px);
+  }
+  #dropzone.drag-over {
+    border-color: var(--accent-glow);
+    background: rgba(30, 30, 80, 0.95);
+    box-shadow: inset 0 0 60px rgba(85, 102, 255, 0.08);
+  }
+  #dropzone.hidden { display: none; }
+
+  .drop-icon {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    background: rgba(85, 102, 255, 0.1);
+    border: 2px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    color: var(--accent-glow);
+    transition: all 0.2s;
+  }
+  #dropzone.drag-over .drop-icon {
+    border-color: var(--accent);
+    background: rgba(85, 102, 255, 0.2);
+    transform: scale(1.08);
+  }
+
+  .drop-title {
+    font-family: var(--font-display);
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .drop-sub {
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+  .drop-hint {
+    margin-top: 8px;
+    font-size: 11px;
+    color: var(--text-dim);
+    opacity: 0.6;
+  }
+
+  /* ── Replace Model Button ────────────────────────────── */
+  #btn-replace {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 5;
+    background: rgba(17, 17, 34, 0.8);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-dim);
+    cursor: pointer;
+    padding: 4px 12px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    display: none;
+    align-items: center;
+    gap: 5px;
+    transition: all 0.2s;
+    backdrop-filter: blur(4px);
+  }
+  #btn-replace:hover { color: var(--accent-glow); border-color: var(--accent-dim); }
+  #btn-replace.visible { display: flex; }
+
+  /* ── Spinner ─────────────────────────────────────────── */
+  #spinner {
+    position: absolute;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 12;
+    background: rgba(6, 6, 15, 0.6);
+    backdrop-filter: blur(4px);
+  }
+  #spinner.visible { display: flex; }
+
+  .spinner-ring {
+    width: 44px;
+    height: 44px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Error Overlay ───────────────────────────────────── */
+  #error-overlay {
+    position: absolute;
+    inset: 0;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    z-index: 12;
+    background: rgba(6, 6, 15, 0.8);
+    backdrop-filter: blur(6px);
+  }
+  #error-overlay.visible { display: flex; }
+  #error-msg { color: var(--error); font-size: 13px; text-align: center; max-width: 400px; }
+  #btn-retry {
+    background: var(--bg-input);
+    border: 1px solid var(--error);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 6px 18px;
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    transition: background 0.2s;
+  }
+  #btn-retry:hover { background: rgba(255, 68, 85, 0.15); }
+
+  /* ── WASD Hint ───────────────────────────────────────── */
+  #wasd-hint {
+    position: absolute;
+    bottom: 12px;
+    right: 12px;
+    z-index: 5;
+    display: flex;
+    gap: 6px;
+    align-items: end;
+    opacity: 0.35;
+    transition: opacity 0.3s;
+    pointer-events: none;
+  }
+  #viewport:hover #wasd-hint { opacity: 0.6; }
+
+  .key {
+    width: 26px;
+    height: 26px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-dim);
+    background: rgba(17, 17, 34, 0.6);
+  }
+  .key.active { border-color: var(--accent); color: var(--accent-glow); background: rgba(85, 102, 255, 0.1); }
+
+  .wasd-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 26px);
+    grid-template-rows: repeat(2, 26px);
+    gap: 3px;
+  }
+  .wasd-grid .key:nth-child(1) { grid-column: 2; }
+
+  .mouse-hint {
+    font-size: 10px;
+    color: var(--text-dim);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    margin-right: 6px;
+  }
+  .mouse-icon {
+    width: 20px;
+    height: 28px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    position: relative;
+  }
+  .mouse-icon::after {
+    content: '';
+    position: absolute;
+    top: 6px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 3px;
+    height: 6px;
+    border-radius: 2px;
+    background: var(--text-dim);
+  }
+
+  /* ── Controls Panel ──────────────────────────────────── */
+  #controls {
+    height: auto;
+    min-height: 72px;
+    display: flex;
+    align-items: center;
+    padding: 12px 20px;
+    gap: 28px;
+    background: var(--bg-panel);
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+    flex-wrap: wrap;
+    position: relative;
+  }
+
+  #controls::before {
+    content: '';
+    position: absolute;
+    top: -1px;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent-dim), transparent);
+  }
+
+  .ctrl-group {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .ctrl-label {
+    font-size: 10px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+  }
+
+  .ctrl-value {
+    color: var(--accent-glow);
+    font-weight: 600;
+  }
+
+  /* ── Slider ──────────────────────────────────────────── */
+  input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 140px;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--bg-control);
+    outline: none;
+    cursor: pointer;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: 2px solid var(--bg-panel);
+    box-shadow: 0 0 6px rgba(85, 102, 255, 0.4);
+    cursor: pointer;
+    transition: transform 0.15s;
+  }
+  input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.2); }
+  input[type="range"]::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: 2px solid var(--bg-panel);
+    box-shadow: 0 0 6px rgba(85, 102, 255, 0.4);
+    cursor: pointer;
+  }
+
+  /* ── Shader Mode Buttons ─────────────────────────────── */
+  .mode-group { display: flex; gap: 4px; }
+  .mode-btn {
+    padding: 5px 14px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text-dim);
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    transition: all 0.15s;
+  }
+  .mode-btn:hover { border-color: var(--accent-dim); color: var(--text); }
+  .mode-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+    box-shadow: 0 0 12px rgba(85, 102, 255, 0.3);
+  }
+
+  /* ── Animation Controls ──────────────────────────────── */
+  .anim-row { display: flex; gap: 8px; align-items: center; }
+
+  select {
+    background: var(--bg-input);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 4px 10px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    cursor: pointer;
+    outline: none;
+    min-width: 100px;
+  }
+  select:focus { border-color: var(--accent-dim); }
+
+  .icon-btn {
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text);
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.15s;
+  }
+  .icon-btn:hover { border-color: var(--accent-dim); background: var(--bg-control); }
+
+  .speed-readout {
+    font-size: 11px;
+    color: var(--accent-glow);
+    font-weight: 500;
+    min-width: 40px;
+  }
+
+  /* ── Divider ─────────────────────────────────────────── */
+  .divider {
+    width: 1px;
+    height: 36px;
+    background: var(--border);
+    flex-shrink: 0;
+  }
+
+  /* ── Grid Background ─────────────────────────────────── */
+  #viewport::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(85, 102, 255, 0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(85, 102, 255, 0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 1;
+    opacity: 0;
+    transition: opacity 0.5s;
+  }
+  #viewport.no-model::before { opacity: 1; }
+
+  /* ── Focus ───────────────────────────────────────────── */
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+</style>
+</head>
+<body>
+
+<!-- ── Top Bar ──────────────────────────────────────────── -->
+<div id="topbar">
+  <div class="logo">
+    <div class="logo-icon">CS</div>
+    Cell-Shaded <span>GLB Viewer</span>
+  </div>
+  <button id="btn-export" title="Export current frame as PNG">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
+    Export PNG
+  </button>
+</div>
+
+<!-- ── Viewport ────────────────────────────────────────── -->
+<div id="viewport" class="no-model">
+
+  <!-- Drop Zone -->
+  <div id="dropzone">
+    <div class="drop-icon">&darr;</div>
+    <div class="drop-title">Drop a .glb file here</div>
+    <div class="drop-sub">or click to browse</div>
+    <div class="drop-hint">Supports binary glTF 2.0 with animations</div>
+  </div>
+
+  <!-- Replace Model -->
+  <button id="btn-replace">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+    Replace model
+  </button>
+
+  <!-- Spinner -->
+  <div id="spinner"><div class="spinner-ring"></div></div>
+
+  <!-- Error -->
+  <div id="error-overlay">
+    <div id="error-msg"></div>
+    <button id="btn-retry">Retry</button>
+  </div>
+
+  <!-- WASD Hint -->
+  <div id="wasd-hint">
+    <div class="mouse-hint">
+      <div class="mouse-icon"></div>
+      <span>orbit</span>
+    </div>
+    <div class="wasd-grid">
+      <div class="key" data-key="KeyW">W</div>
+      <div class="key" data-key="KeyA">A</div>
+      <div class="key" data-key="KeyS">S</div>
+      <div class="key" data-key="KeyD">D</div>
+    </div>
+  </div>
+
+  <input type="file" id="file-input" accept=".glb" style="display:none">
+</div>
+
+<!-- ── Controls Panel ──────────────────────────────────── -->
+<div id="controls">
+
+  <!-- Time of Day -->
+  <div class="ctrl-group">
+    <div class="ctrl-label">Time of Day <span class="ctrl-value" id="tod-val">12.0h</span></div>
+    <input type="range" id="slider-tod" min="0" max="24" step="0.1" value="12">
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- Global Illumination -->
+  <div class="ctrl-group">
+    <div class="ctrl-label">Ambient <span class="ctrl-value" id="gi-val">0.40</span></div>
+    <input type="range" id="slider-gi" min="0" max="3" step="0.01" value="0.4">
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- Shader Mode -->
+  <div class="ctrl-group">
+    <div class="ctrl-label">Shader Mode</div>
+    <div class="mode-group">
+      <button class="mode-btn" data-mode="flat">Flat</button>
+      <button class="mode-btn active" data-mode="toon">Toon</button>
+      <button class="mode-btn" data-mode="anime">Anime</button>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- Animation -->
+  <div class="ctrl-group" id="anim-group" style="display:none">
+    <div class="ctrl-label">Animation</div>
+    <div class="anim-row">
+      <select id="anim-select"></select>
+      <button class="icon-btn" id="btn-playpause" title="Play / Pause">&#9654;</button>
+      <input type="range" id="slider-speed" min="0.1" max="3" step="0.05" value="1" style="width:70px">
+      <span class="speed-readout" id="speed-val">1.00x</span>
+    </div>
+  </div>
+
+  <div class="ctrl-group" id="anim-none" style="display:none">
+    <div class="ctrl-label">Animation</div>
+    <div style="font-size:11px;color:var(--text-dim)">(none)</div>
+  </div>
+
+</div>
+
+<!-- ── Three.js App ────────────────────────────────────── -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://esm.sh/three@0.128.0",
+    "three/examples/jsm/loaders/GLTFLoader": "https://esm.sh/three@0.128.0/examples/jsm/loaders/GLTFLoader",
+    "three/examples/jsm/controls/OrbitControls": "https://esm.sh/three@0.128.0/examples/jsm/controls/OrbitControls",
+    "three/examples/jsm/postprocessing/EffectComposer": "https://esm.sh/three@0.128.0/examples/jsm/postprocessing/EffectComposer",
+    "three/examples/jsm/postprocessing/RenderPass": "https://esm.sh/three@0.128.0/examples/jsm/postprocessing/RenderPass",
+    "three/examples/jsm/postprocessing/OutlinePass": "https://esm.sh/three@0.128.0/examples/jsm/postprocessing/OutlinePass"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass';
+import { OutlinePass } from 'three/examples/jsm/postprocessing/OutlinePass';
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// GLSL SHADERS — all vertex shaders use #include chunks for skinning support
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const FLAT_VERT = `
+  #include <common>
+  #include <skinning_pars_vertex>
+  varying vec2 vUv;
+  void main() {
+    vUv = uv;
+    #include <begin_vertex>
+    #include <skinbase_vertex>
+    #include <skinning_vertex>
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(transformed, 1.0);
+  }
+`;
+
+const FLAT_FRAG = `
+  uniform sampler2D uMap;
+  uniform vec3 uBaseColor;
+  uniform bool uHasMap;
+  varying vec2 vUv;
+  void main() {
+    vec3 col = uHasMap ? texture2D(uMap, vUv).rgb : uBaseColor;
+    gl_FragColor = vec4(col, 1.0);
+  }
+`;
+
+const TOON_VERT = `
+  #include <common>
+  #include <skinning_pars_vertex>
+  varying vec3 vNormal;
+  varying vec2 vUv;
+  void main() {
+    vUv = uv;
+    #include <beginnormal_vertex>
+    #include <skinbase_vertex>
+    #include <skinnormal_vertex>
+    #include <begin_vertex>
+    #include <skinning_vertex>
+    vNormal = normalize(normalMatrix * objectNormal);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(transformed, 1.0);
+  }
+`;
+
+const TOON_FRAG = `
+  uniform sampler2D uMap;
+  uniform vec3 uBaseColor;
+  uniform bool uHasMap;
+  uniform vec3 uLightDir;
+  uniform vec3 uLightColor;
+  uniform float uLightIntensity;
+  uniform float uAmbient;
+  varying vec3 vNormal;
+  varying vec2 vUv;
+
+  float toonRamp(float d) {
+    if (d > 0.6)  return 1.0;
+    if (d > 0.1)  return 0.6;
+    return 0.15;
+  }
+
+  void main() {
+    vec3 N = normalize(vNormal);
+    vec3 L = normalize(uLightDir);
+    float NdL = dot(N, L);
+    float ramp = toonRamp(NdL);
+    vec3 albedo = uHasMap ? texture2D(uMap, vUv).rgb : uBaseColor;
+    vec3 diffuse = albedo * uLightColor * uLightIntensity * ramp;
+    vec3 ambient = albedo * uAmbient;
+    gl_FragColor = vec4(diffuse + ambient, 1.0);
+  }
+`;
+
+const ANIME_VERT = `
+  #include <common>
+  #include <skinning_pars_vertex>
+  uniform float uOutlineWidth;
+  uniform bool  uIsOutlinePass;
+  varying vec3 vNormal;
+  varying vec2 vUv;
+  varying vec3 vViewDir;
+  void main() {
+    vUv = uv;
+    #include <beginnormal_vertex>
+    #include <skinbase_vertex>
+    #include <skinnormal_vertex>
+    #include <begin_vertex>
+    #include <skinning_vertex>
+    if (uIsOutlinePass) {
+      transformed += normalize(objectNormal) * uOutlineWidth;
+    }
+    vNormal = normalize(normalMatrix * objectNormal);
+    vec4 mvPos = modelViewMatrix * vec4(transformed, 1.0);
+    vViewDir = normalize(-mvPos.xyz);
+    gl_Position = projectionMatrix * mvPos;
+  }
+`;
+
+const ANIME_FRAG = `
+  uniform sampler2D uMap;
+  uniform vec3  uBaseColor;
+  uniform bool  uHasMap;
+  uniform vec3  uLightDir;
+  uniform vec3  uLightColor;
+  uniform float uLightIntensity;
+  uniform float uAmbient;
+  uniform float uShininess;
+  uniform vec3  uRimColor;
+  uniform float uRimStrength;
+  uniform bool  uIsOutlinePass;
+  uniform vec3  uOutlineColor;
+  varying vec3 vNormal;
+  varying vec2 vUv;
+  varying vec3 vViewDir;
+
+  float animeRamp(float d) {
+    if (d > 0.85) return 1.00;
+    if (d > 0.60) return 0.80;
+    if (d > 0.35) return 0.55;
+    if (d > 0.10) return 0.30;
+    return 0.05;
+  }
+
+  void main() {
+    if (uIsOutlinePass) { gl_FragColor = vec4(uOutlineColor, 1.0); return; }
+    vec3 N = normalize(vNormal);
+    vec3 L = normalize(uLightDir);
+    vec3 V = normalize(vViewDir);
+    vec3 H = normalize(L + V);
+    float NdL  = dot(N, L);
+    float ramp = animeRamp(NdL);
+    float spec = pow(max(0.0, dot(H, N)), uShininess);
+    float specQ = spec > 0.5 ? 1.0 : 0.0;
+    float rim = pow(1.0 - max(0.0, dot(N, V)), 3.0);
+    vec3 albedo  = uHasMap ? texture2D(uMap, vUv).rgb : uBaseColor;
+    vec3 diffuse = albedo * uLightColor * uLightIntensity * ramp;
+    vec3 ambient = albedo * uAmbient;
+    vec3 specCol = uLightColor * specQ * 0.8;
+    vec3 rimCol  = uRimColor * rim * uRimStrength;
+    gl_FragColor = vec4(diffuse + ambient + specCol + rimCol, 1.0);
+  }
+`;
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MATERIAL FACTORIES — skinning: true on all for SkinnedMesh support
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function makeFlatMaterial(src) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uMap:       { value: src.map ?? null },
+      uBaseColor: { value: src.color ? src.color.clone() : new THREE.Color(0.8, 0.8, 0.8) },
+      uHasMap:    { value: !!src.map },
+    },
+    vertexShader: FLAT_VERT, fragmentShader: FLAT_FRAG,
+    skinning: true,
+  });
+}
+
+function makeToonMaterial(src) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uMap:            { value: src.map ?? null },
+      uBaseColor:      { value: src.color ? src.color.clone() : new THREE.Color(0.8, 0.8, 0.8) },
+      uHasMap:         { value: !!src.map },
+      uLightDir:       { value: new THREE.Vector3(1, 1, 1).normalize() },
+      uLightColor:     { value: new THREE.Color(1, 0.957, 0.878) },
+      uLightIntensity: { value: 1.5 },
+      uAmbient:        { value: 0.4 },
+    },
+    vertexShader: TOON_VERT, fragmentShader: TOON_FRAG,
+    skinning: true,
+  });
+}
+
+function makeAnimeMaterial(src, isOutline) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uMap:            { value: src.map ?? null },
+      uBaseColor:      { value: src.color ? src.color.clone() : new THREE.Color(0.8, 0.8, 0.8) },
+      uHasMap:         { value: !!src.map },
+      uLightDir:       { value: new THREE.Vector3(1, 1, 1).normalize() },
+      uLightColor:     { value: new THREE.Color(1, 0.957, 0.878) },
+      uLightIntensity: { value: 1.5 },
+      uAmbient:        { value: 0.4 },
+      uShininess:      { value: 64.0 },
+      uRimColor:       { value: new THREE.Color(0.4, 0.6, 1.0) },
+      uRimStrength:    { value: 0.6 },
+      uOutlineWidth:   { value: 0.02 },
+      uIsOutlinePass:  { value: isOutline },
+      uOutlineColor:   { value: new THREE.Color(0, 0, 0) },
+    },
+    vertexShader: ANIME_VERT, fragmentShader: ANIME_FRAG,
+    skinning: true,
+    side: isOutline ? THREE.BackSide : THREE.FrontSide,
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// APP STATE
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const state = {
+  shaderMode: 'toon',
+  timeOfDay: 12,
+  giStrength: 0.4,
+  animSpeed: 1.0,
+  playing: true,
+  hasModel: false,
+};
+
+let renderer, camera, scene, controls, composer;
+let dirLight, ambLight;
+let model = null, mixer = null, activeAction = null;
+let clips = [];
+let objectUrl = null;
+let groundPlane, groundMat;
+let rafId = null;
+
+// DOM refs
+const viewport   = document.getElementById('viewport');
+const dropzone   = document.getElementById('dropzone');
+const spinner    = document.getElementById('spinner');
+const errorOvl   = document.getElementById('error-overlay');
+const errorMsg   = document.getElementById('error-msg');
+const btnRetry   = document.getElementById('btn-retry');
+const btnReplace = document.getElementById('btn-replace');
+const btnExport  = document.getElementById('btn-export');
+const fileInput  = document.getElementById('file-input');
+const sliderTod  = document.getElementById('slider-tod');
+const sliderGi   = document.getElementById('slider-gi');
+const sliderSpeed= document.getElementById('slider-speed');
+const todVal     = document.getElementById('tod-val');
+const giVal      = document.getElementById('gi-val');
+const speedVal   = document.getElementById('speed-val');
+const animGroup  = document.getElementById('anim-group');
+const animNone   = document.getElementById('anim-none');
+const animSelect = document.getElementById('anim-select');
+const btnPlay    = document.getElementById('btn-playpause');
+const modeBtns   = document.querySelectorAll('.mode-btn');
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// THREE.JS SCENE SETUP
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function init() {
+  const W = viewport.clientWidth;
+  const H = viewport.clientHeight;
+
+  renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, preserveDrawingBuffer: true });
+  renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.setSize(W, H);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  viewport.insertBefore(renderer.domElement, viewport.firstChild);
+
+  camera = new THREE.PerspectiveCamera(50, W / H, 0.01, 1000);
+  camera.position.set(0, 1, 3);
+
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x1a1a2e);
+
+  // Directional light with shadow
+  dirLight = new THREE.DirectionalLight(0xfff4e0, 1.5);
+  dirLight.position.set(5, 5, 5);
+  dirLight.castShadow = true;
+  dirLight.shadow.mapSize.width = 1024;
+  dirLight.shadow.mapSize.height = 1024;
+  dirLight.shadow.camera.near = 0.5;
+  dirLight.shadow.camera.far = 50;
+  dirLight.shadow.camera.left = -3;
+  dirLight.shadow.camera.right = 3;
+  dirLight.shadow.camera.top = 3;
+  dirLight.shadow.camera.bottom = -3;
+  dirLight.shadow.bias = -0.001;
+  scene.add(dirLight);
+
+  ambLight = new THREE.AmbientLight(0x8888cc, 0.4);
+  scene.add(ambLight);
+
+  // Shadow ground plane
+  const groundGeo = new THREE.PlaneGeometry(20, 20);
+  groundMat = new THREE.ShadowMaterial({ opacity: 0.35, transparent: true });
+  groundPlane = new THREE.Mesh(groundGeo, groundMat);
+  groundPlane.rotation.x = -Math.PI / 2;
+  groundPlane.position.y = 0;
+  groundPlane.receiveShadow = true;
+  groundPlane.name = 'shadowGroundPlane';
+
+  // OrbitControls
+  controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.target.set(0, 1, 0);
+
+  // Post-process
+  composer = new EffectComposer(renderer);
+  composer.addPass(new RenderPass(scene, camera));
+
+  // Resize
+  const ro = new ResizeObserver(entries => {
+    for (const entry of entries) {
+      const { width, height } = entry.contentRect;
+      if (width === 0 || height === 0) continue;
+      renderer.setSize(width, height);
+      composer.setSize(width, height);
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+    }
+  });
+  ro.observe(viewport);
+
+  // WASD
+  const keys = {};
+  window.addEventListener('keydown', e => {
+    keys[e.code] = true;
+    const el = document.querySelector(`.key[data-key="${e.code}"]`);
+    if (el) el.classList.add('active');
+  });
+  window.addEventListener('keyup', e => {
+    keys[e.code] = false;
+    const el = document.querySelector(`.key[data-key="${e.code}"]`);
+    if (el) el.classList.remove('active');
+  });
+
+  // Animation loop
+  const clock = new THREE.Clock();
+  function animate() {
+    rafId = requestAnimationFrame(animate);
+    const delta = clock.getDelta();
+
+    // WASD pan
+    const speed = 0.05;
+    const fwd = new THREE.Vector3();
+    camera.getWorldDirection(fwd);
+    fwd.y = 0; fwd.normalize();
+    const right = new THREE.Vector3().crossVectors(fwd, THREE.Object3D.DefaultUp).normalize();
+    if (keys['KeyW']) { controls.target.addScaledVector(fwd, speed); camera.position.addScaledVector(fwd, speed); }
+    if (keys['KeyS']) { controls.target.addScaledVector(fwd, -speed); camera.position.addScaledVector(fwd, -speed); }
+    if (keys['KeyA']) { controls.target.addScaledVector(right, -speed); camera.position.addScaledVector(right, -speed); }
+    if (keys['KeyD']) { controls.target.addScaledVector(right, speed); camera.position.addScaledVector(right, speed); }
+
+    controls.update();
+    if (mixer) mixer.update(delta);
+    updateLightFromTimeOfDay();
+    updateShaderUniforms();
+    composer.render();
+  }
+  animate();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// LIGHTING
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function updateLightFromTimeOfDay() {
+  const t = state.timeOfDay;
+  const elevation = ((t / 24) * 360 - 90) * (Math.PI / 180);
+  const azimuth = 45 * (Math.PI / 180);
+  const x = Math.cos(elevation) * Math.sin(azimuth);
+  const y = Math.sin(elevation);
+  const z = Math.cos(elevation) * Math.cos(azimuth);
+  dirLight.position.set(x * 10, y * 10, z * 10);
+
+  const elevDeg = elevation * (180 / Math.PI);
+  const fade = Math.max(0, Math.min(1, (elevDeg + 10) / 10));
+  dirLight.intensity = 1.5 * fade;
+  dirLight.shadow.camera.updateProjectionMatrix();
+  groundMat.opacity = 0.35 * fade;
+}
+
+function updateShaderUniforms() {
+  if (!model) return;
+  const L = dirLight.position.clone().normalize();
+  const intensity = dirLight.intensity;
+  const ambient = ambLight.intensity;
+  model.traverse(child => {
+    if (!child.isMesh) return;
+    const mat = child.material;
+    if (mat?.uniforms?.uLightDir) {
+      mat.uniforms.uLightDir.value.copy(L);
+      mat.uniforms.uLightIntensity.value = intensity;
+      mat.uniforms.uAmbient.value = ambient;
+    }
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// GROUND PLANE
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function updateGroundPlane(mode) {
+  const shouldShow = mode === 'toon' || mode === 'anime';
+  const inScene = scene.getObjectByName('shadowGroundPlane') !== undefined;
+  if (shouldShow && !inScene) scene.add(groundPlane);
+  if (!shouldShow && inScene) scene.remove(groundPlane);
+  dirLight.castShadow = shouldShow;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SHADER MODE
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function applyShaderMode(mode) {
+  if (!model) return;
+
+  // Collect meshes first to avoid mutating the tree during traversal
+  const meshes = [];
+  model.traverse(child => {
+    if (child.isMesh && !child.userData.isOutlineMesh) meshes.push(child);
+  });
+
+  // Remove all previous outline twins
+  meshes.forEach(child => {
+    if (child.userData.outlineMesh) {
+      child.remove(child.userData.outlineMesh);
+      child.userData.outlineMesh.material?.dispose();
+      child.userData.outlineMesh = null;
+    }
+  });
+
+  // Apply new materials
+  meshes.forEach(child => {
+    const src = child.userData.originalMaterial ?? child.material;
+    child.userData.originalMaterial = src;
+
+    if (mode === 'flat') {
+      child.material = makeFlatMaterial(src);
+    } else if (mode === 'toon') {
+      child.material = makeToonMaterial(src);
+    } else if (mode === 'anime') {
+      child.material = makeAnimeMaterial(src, false);
+      const outlineMat = makeAnimeMaterial(src, true);
+      const outlineMesh = new THREE.Mesh(child.geometry, outlineMat);
+      outlineMesh.renderOrder = -1;
+      outlineMesh.frustumCulled = false;
+      outlineMesh.userData.isOutlineMesh = true;
+      child.add(outlineMesh);
+      child.userData.outlineMesh = outlineMesh;
+    }
+  });
+
+  // OutlinePass (Toon only — anime uses geometry-twin outlines)
+  if (composer.passes.length > 1) composer.passes.splice(1, composer.passes.length - 1);
+  if (mode === 'toon') {
+    const op = new OutlinePass(
+      new THREE.Vector2(renderer.domElement.width, renderer.domElement.height),
+      scene, camera
+    );
+    op.edgeStrength = 4.0;
+    op.edgeThickness = 1.0;
+    op.visibleEdgeColor.set('#000000');
+    const selected = [];
+    model.traverse(c => { if (c.isMesh) selected.push(c); });
+    op.selectedObjects = selected;
+    composer.addPass(op);
+  }
+
+  updateGroundPlane(mode);
+  state.shaderMode = mode;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MODEL LOADING
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function clearModel() {
+  if (!model) return;
+  if (mixer) { mixer.stopAllAction(); mixer = null; }
+  activeAction = null;
+  model.traverse(child => {
+    if (child.isMesh) {
+      child.geometry?.dispose();
+      if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
+      else child.material?.dispose();
+      if (child.userData.outlineMesh) {
+        child.userData.outlineMesh.material?.dispose();
+      }
+    }
+  });
+  scene.remove(model);
+  model = null;
+  clips = [];
+  state.hasModel = false;
+  state.playing = true;
+  animGroup.style.display = 'none';
+  animNone.style.display = 'none';
+  btnReplace.classList.remove('visible');
+  viewport.classList.add('no-model');
+}
+
+function loadModel(url) {
+  spinner.classList.add('visible');
+  errorOvl.classList.remove('visible');
+
+  const loader = new GLTFLoader();
+  loader.load(url, gltf => {
+    if (model) clearModel();
+
+    model = gltf.scene;
+
+    // Centre and normalise
+    const box = new THREE.Box3().setFromObject(model);
+    const size = box.getSize(new THREE.Vector3());
+    const centre = box.getCenter(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z);
+    const scale = 2.0 / maxDim;
+    model.scale.setScalar(scale);
+    model.position.sub(centre.multiplyScalar(scale));
+    const box2 = new THREE.Box3().setFromObject(model);
+    model.position.y -= box2.min.y;
+
+    scene.add(model);
+
+    // Shadow casting + disable frustum culling (prevents meshes vanishing at certain angles)
+    model.traverse(child => {
+      if (child.isMesh) {
+        child.castShadow = true;
+        child.receiveShadow = false;
+        child.frustumCulled = false;
+      }
+    });
+
+    // Camera far — generous range to prevent clipping when panning/zooming
+    camera.far = Math.max(500, size.length() * scale * 200);
+    camera.updateProjectionMatrix();
+
+    // Apply shader
+    applyShaderMode(state.shaderMode);
+
+    // Animations
+    clips = gltf.animations;
+    if (clips.length > 0) {
+      mixer = new THREE.AnimationMixer(model);
+      mixer.timeScale = state.animSpeed;
+      animSelect.innerHTML = '';
+      clips.forEach((c, i) => {
+        const opt = document.createElement('option');
+        const name = c.name || 'Clip ' + i;
+        opt.value = String(i);
+        opt.textContent = name;
+        animSelect.appendChild(opt);
+      });
+      playClip(0);
+      animGroup.style.display = 'flex';
+      animNone.style.display = 'none';
+    } else {
+      mixer = null;
+      animGroup.style.display = 'none';
+      animNone.style.display = 'flex';
+    }
+
+    state.hasModel = true;
+    spinner.classList.remove('visible');
+    dropzone.classList.add('hidden');
+    btnReplace.classList.add('visible');
+    viewport.classList.remove('no-model');
+  }, undefined, err => {
+    spinner.classList.remove('visible');
+    errorMsg.textContent = 'Failed to load GLB: ' + (err.message || String(err));
+    errorOvl.classList.add('visible');
+  });
+}
+
+function playClip(index) {
+  if (!mixer) return;
+  const clip = clips[index];
+  if (!clip) return;
+  if (activeAction) activeAction.fadeOut(0.2);
+  const action = mixer.clipAction(clip);
+  action.reset().fadeIn(0.2).play();
+  activeAction = action;
+  animSelect.value = String(index);
+  state.playing = true;
+  btnPlay.textContent = '\u23F8';
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// EXPORT
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function handleExport() {
+  if (!renderer) return;
+  btnExport.classList.add('flash');
+  setTimeout(() => btnExport.classList.remove('flash'), 400);
+
+  composer.render();
+
+  const dataUrl = renderer.domElement.toDataURL('image/png');
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const ts = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}-${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+  const a = document.createElement('a');
+  a.href = dataUrl;
+  a.download = `cellshade-export-${ts}.png`;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// FILE DROP
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function handleFile(file) {
+  if (!file) return;
+  if (!file.name.toLowerCase().endsWith('.glb')) {
+    errorMsg.textContent = 'Only .glb files are supported.';
+    errorOvl.classList.add('visible');
+    return;
+  }
+  if (objectUrl) URL.revokeObjectURL(objectUrl);
+  objectUrl = URL.createObjectURL(file);
+  clearModel();
+  loadModel(objectUrl);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// EVENT WIRING
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Drop zone
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag-over'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropzone.classList.remove('drag-over');
+  handleFile(e.dataTransfer.files[0]);
+});
+dropzone.addEventListener('click', () => fileInput.click());
+dropzone.addEventListener('keydown', e => {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); }
+});
+
+fileInput.addEventListener('change', e => {
+  handleFile(e.target.files[0]);
+  e.target.value = '';
+});
+
+// Replace model
+btnReplace.addEventListener('click', () => {
+  dropzone.classList.remove('hidden');
+});
+
+// Retry
+btnRetry.addEventListener('click', () => {
+  errorOvl.classList.remove('visible');
+  if (objectUrl) loadModel(objectUrl);
+});
+
+// Export
+btnExport.addEventListener('click', handleExport);
+
+// Time of Day
+sliderTod.addEventListener('input', e => {
+  state.timeOfDay = +e.target.value;
+  todVal.textContent = state.timeOfDay.toFixed(1) + 'h';
+});
+
+// GI
+sliderGi.addEventListener('input', e => {
+  state.giStrength = +e.target.value;
+  giVal.textContent = state.giStrength.toFixed(2);
+  if (ambLight) ambLight.intensity = state.giStrength;
+});
+
+// Speed
+sliderSpeed.addEventListener('input', e => {
+  state.animSpeed = +e.target.value;
+  speedVal.textContent = state.animSpeed.toFixed(2) + 'x';
+  if (mixer) mixer.timeScale = state.animSpeed;
+});
+
+// Shader mode buttons
+modeBtns.forEach(btn => {
+  btn.addEventListener('click', () => {
+    modeBtns.forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    applyShaderMode(btn.dataset.mode);
+  });
+});
+
+// Animation select — uses index-based values to avoid empty-name collisions
+animSelect.addEventListener('change', e => {
+  const idx = parseInt(e.target.value, 10);
+  if (!isNaN(idx)) playClip(idx);
+});
+
+// Play/Pause
+btnPlay.addEventListener('click', () => {
+  if (!activeAction) return;
+  if (state.playing) {
+    activeAction.paused = true;
+    state.playing = false;
+    btnPlay.textContent = '\u25B6';
+  } else {
+    activeAction.paused = false;
+    state.playing = true;
+    btnPlay.textContent = '\u23F8';
+  }
+});
+
+// Also allow full-window drag-and-drop (when dropzone is hidden)
+viewport.addEventListener('dragover', e => { e.preventDefault(); });
+viewport.addEventListener('drop', e => {
+  e.preventDefault();
+  if (!dropzone.classList.contains('hidden')) return;
+  handleFile(e.dataTransfer.files[0]);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// BOOT
+// ═══════════════════════════════════════════════════════════════════════════════
+
+init();
+</script>
+</body>
+</html>
