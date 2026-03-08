@@ -2,6 +2,8 @@
 
 A browser-based 3D model viewer that renders `.glb` files in real-time stylised shader modes — flat, toon, and anime/cel-shaded. Load any GLB character or prop, play its animations, adjust lighting, and switch between non-photorealistic rendering styles instantly.
 
+**Live Web:** [https://scuffedepoch.com/cell-shaded-glb/](https://scuffedepoch.com/cell-shaded-glb/)
+
 ## Shader Modes
 
 **Flat** — Removes all lighting. Every surface displays its raw texture colour, producing a clean, illustration-like look.
